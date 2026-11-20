@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -1067,21 +1067,36 @@ const BookingSection = () => {
     name: "",
     phone: "",
     date: "",
-    time: "",
+    session: "",
   });
+
+  const { todayStr, maxDateStr } = useMemo(() => {
+    const today = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const todayFormatted = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 30);
+    const maxFormatted = `${maxDate.getFullYear()}-${pad(maxDate.getMonth() + 1)}-${pad(maxDate.getDate())}`;
+
+    return { todayStr: todayFormatted, maxDateStr: maxFormatted };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name.trim() || !formData.phone.trim() || !formData.date || !formData.time) {
+    if (!formData.name.trim() || !formData.phone.trim() || !formData.date) {
       alert("Please fill in all the details to book your appointment.");
       return;
     }
 
-    const timeString = formData.time;
-    const [hours, minutes] = timeString.split(":").map(Number);
-    if (hours < 11 || hours >= 18 && minutes > 0) {
-      alert("Please select a time between 11:00 AM and 6:00 PM.");
+    if (!formData.session) {
+      alert("Please select an appointment session (Morning or Evening).");
+      return;
+    }
+
+    if (formData.date < todayStr || formData.date > maxDateStr) {
+      alert("Please select a date between today and the next 30 days.");
       return;
     }
 
@@ -1092,8 +1107,7 @@ I would like to book an appointment.
 Name: ${formData.name.trim()}
 Phone: ${formData.phone.trim()}
 Date: ${formData.date}
-Time: ${formData.time}
-Preferred Appointment Time: 11 AM – 6 PM (Non-Emergency)
+Session: ${formData.session}
 
 Kindly confirm my appointment.
 
@@ -1137,22 +1151,25 @@ Thank you.`;
               </p>
 
               <div className="space-y-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm flex-shrink-0 mt-0.5">
                     <Clock className="w-6 h-6" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-lg">Clinic Timings</h4>
                     <p className="text-white/90 text-sm mt-1">
-                      By Appointment Only: <strong className="font-semibold text-white">11:00 AM – 6:00 PM</strong>
+                      Morning: <strong className="font-semibold text-white">10:00 AM – 1:00 PM</strong>
                     </p>
-                    <p className="text-[#39ff14] text-sm font-bold tracking-wide drop-shadow-[0_0_8px_rgba(57,255,20,0.8)] mt-0.5">
+                    <p className="text-white/90 text-sm">
+                      Evening: <strong className="font-semibold text-white">6:00 PM – 8:00 PM</strong> (by appointment)
+                    </p>
+                    <p className="text-[#39ff14] text-sm font-bold tracking-wide drop-shadow-[0_0_8px_rgba(57,255,20,0.8)] mt-1.5">
                       Available 24/7 for Emergency Cases
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
+                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm flex-shrink-0">
                     <PhoneCall className="w-6 h-6" />
                   </div>
                   <div>
@@ -1178,6 +1195,7 @@ Thank you.`;
                       required
                       type="text"
                       name="name"
+                      value={formData.name}
                       onChange={handleChange}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
                       placeholder="John Doe"
@@ -1192,39 +1210,65 @@ Thank you.`;
                       required
                       type="tel"
                       name="phone"
+                      value={formData.phone}
                       onChange={handleChange}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
                       placeholder="+91 98765 43210"
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label htmlFor="date" className="text-sm font-semibold text-gray-700">
-                        Date
-                      </label>
-                      <input
-                        id="date"
-                        required
-                        type="date"
-                        name="date"
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="time" className="text-sm font-semibold text-gray-700">
-                        Time (11:00 AM - 6:00 PM)
-                      </label>
-                      <input
-                        id="time"
-                        type="time"
-                        required
-                        name="time"
-                        min="11:00"
-                        max="18:00"
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
-                      />
+                  <div className="space-y-1">
+                    <label htmlFor="date" className="text-sm font-semibold text-gray-700">
+                      Date
+                    </label>
+                    <input
+                      id="date"
+                      required
+                      type="date"
+                      name="date"
+                      min={todayStr}
+                      max={maxDateStr}
+                      value={formData.date}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Preferred Session
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            session: "Morning (10 AM – 1 PM)",
+                          }))
+                        }
+                        className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center cursor-pointer min-h-[48px] ${
+                          formData.session === "Morning (10 AM – 1 PM)"
+                            ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20"
+                            : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200"
+                        }`}
+                      >
+                        Morning (10 AM – 1 PM)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            session: "Evening (6 PM – 8 PM)",
+                          }))
+                        }
+                        className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center cursor-pointer min-h-[48px] ${
+                          formData.session === "Evening (6 PM – 8 PM)"
+                            ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20"
+                            : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200"
+                        }`}
+                      >
+                        Evening (6 PM – 8 PM)
+                      </button>
                     </div>
                   </div>
                   <motion.button
