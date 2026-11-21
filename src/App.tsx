@@ -1085,7 +1085,23 @@ const fetchAryaCare = async (path: string, init?: RequestInit) => {
   }
 };
 
-const BookingSection = () => {
+const getSourceParam = (): string => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const src = params.get("src");
+    if (src) {
+      const sanitized = src.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 30);
+      if (sanitized.length > 0) {
+        return sanitized;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return "website";
+};
+
+const AppointmentForm = () => {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -1245,6 +1261,8 @@ const BookingSection = () => {
     setIsSubmitting(true);
     setStatusMessage(null);
 
+    const source = getSourceParam();
+
     try {
       const res = await fetchAryaCare("/api/public/appointments", {
         method: "POST",
@@ -1256,6 +1274,7 @@ const BookingSection = () => {
           mobile: mobile,
           date: formData.date,
           session: formData.session,
+          source: source,
           website: formData.website || "",
         }),
       });
@@ -1298,6 +1317,160 @@ const BookingSection = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  if (config && config.onlineBookingEnabled === false) {
+    return (
+      <div className="py-8 text-center space-y-2">
+        <p className="text-lg font-semibold text-gray-800">
+          Please call{" "}
+          <a
+            href="tel:8140038191"
+            className="text-primary hover:underline font-bold"
+          >
+            8140038191
+          </a>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {statusMessage && (
+        <div
+          className={`p-4 mb-5 rounded-xl text-sm font-medium transition-all ${
+            statusMessage.type === "success"
+              ? "bg-green-50 text-green-800 border border-green-200"
+              : "bg-red-50 text-red-800 border border-red-200"
+          }`}
+        >
+          {statusMessage.text}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
+          <label htmlFor="website">Website</label>
+          <input
+            id="website"
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={formData.website}
+            onChange={handleChange}
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="name" className="text-sm font-semibold text-gray-700">
+            Full Name
+          </label>
+          <input
+            id="name"
+            required
+            type="text"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+            placeholder="John Doe"
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="phone" className="text-sm font-semibold text-gray-700">
+            Phone Number
+          </label>
+          <input
+            id="phone"
+            required
+            type="tel"
+            name="phone"
+            value={formData.phone}
+            onChange={handleChange}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+            placeholder="+91 98765 43210"
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="date" className="text-sm font-semibold text-gray-700">
+            Date
+          </label>
+          <input
+            id="date"
+            required
+            type="date"
+            name="date"
+            min={todayStr}
+            max={maxDateStr}
+            value={formData.date}
+            onChange={handleChange}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-gray-700 block">
+            Preferred Session
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={!isMorningAvailable}
+              onClick={() =>
+                setFormData((prev) => ({
+                  ...prev,
+                  session: "morning",
+                }))
+              }
+              className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
+                !isMorningAvailable
+                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
+                  : formData.session === "morning"
+                  ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
+                  : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
+              }`}
+            >
+              Morning (10 AM – 1 PM)
+            </button>
+            <button
+              type="button"
+              disabled={!isEveningAvailable}
+              onClick={() =>
+                setFormData((prev) => ({
+                  ...prev,
+                  session: "evening",
+                }))
+              }
+              className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
+                !isEveningAvailable
+                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
+                  : formData.session === "evening"
+                  ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
+                  : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
+              }`}
+            >
+              Evening (6 PM – 8 PM)
+            </button>
+          </div>
+        </div>
+        <motion.button
+          whileHover={isSubmitting ? {} : { scale: 1.01 }}
+          whileTap={isSubmitting ? {} : { scale: 0.98 }}
+          type="submit"
+          disabled={isSubmitting}
+          className={`w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-2 mt-4 transition-colors ${
+            isSubmitting
+              ? "bg-gray-400 text-white cursor-not-allowed"
+              : "bg-gray-900 hover:bg-gray-800 text-white cursor-pointer"
+          }`}
+        >
+          {isSubmitting ? "Sending..." : "Request Appointment"}
+          {!isSubmitting && <ChevronRight size={18} />}
+        </motion.button>
+      </form>
+    </div>
+  );
+};
+
+const BookingSection = () => {
   return (
     <section id="book" className="py-16 md:py-24 bg-white relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1360,158 +1533,71 @@ const BookingSection = () => {
                 <h4 className="text-xl md:text-2xl font-bold text-gray-900 mb-4 md:mb-6">
                   Appointment Details
                 </h4>
-
-                {statusMessage && (
-                  <div
-                    className={`p-4 mb-5 rounded-xl text-sm font-medium transition-all ${
-                      statusMessage.type === "success"
-                        ? "bg-green-50 text-green-800 border border-green-200"
-                        : "bg-red-50 text-red-800 border border-red-200"
-                    }`}
-                  >
-                    {statusMessage.text}
-                  </div>
-                )}
-
-                {config && config.onlineBookingEnabled === false ? (
-                  <div className="py-8 text-center space-y-2">
-                    <p className="text-lg font-semibold text-gray-800">
-                      Please call{" "}
-                      <a
-                        href="tel:8140038191"
-                        className="text-primary hover:underline font-bold"
-                      >
-                        8140038191
-                      </a>
-                    </p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSubmit} className="space-y-5">
-                    <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
-                      <label htmlFor="website">Website</label>
-                      <input
-                        id="website"
-                        type="text"
-                        name="website"
-                        tabIndex={-1}
-                        autoComplete="off"
-                        value={formData.website}
-                        onChange={handleChange}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="name" className="text-sm font-semibold text-gray-700">
-                        Full Name
-                      </label>
-                      <input
-                        id="name"
-                        required
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
-                        placeholder="John Doe"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="phone" className="text-sm font-semibold text-gray-700">
-                        Phone Number
-                      </label>
-                      <input
-                        id="phone"
-                        required
-                        type="tel"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
-                        placeholder="+91 98765 43210"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="date" className="text-sm font-semibold text-gray-700">
-                        Date
-                      </label>
-                      <input
-                        id="date"
-                        required
-                        type="date"
-                        name="date"
-                        min={todayStr}
-                        max={maxDateStr}
-                        value={formData.date}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-semibold text-gray-700 block">
-                        Preferred Session
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          disabled={!isMorningAvailable}
-                          onClick={() =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              session: "morning",
-                            }))
-                          }
-                          className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
-                            !isMorningAvailable
-                              ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
-                              : formData.session === "morning"
-                              ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
-                              : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
-                          }`}
-                        >
-                          Morning (10 AM – 1 PM)
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!isEveningAvailable}
-                          onClick={() =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              session: "evening",
-                            }))
-                          }
-                          className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
-                            !isEveningAvailable
-                              ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
-                              : formData.session === "evening"
-                              ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
-                              : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
-                          }`}
-                        >
-                          Evening (6 PM – 8 PM)
-                        </button>
-                      </div>
-                    </div>
-                    <motion.button
-                      whileHover={isSubmitting ? {} : { scale: 1.01 }}
-                      whileTap={isSubmitting ? {} : { scale: 0.98 }}
-                      type="submit"
-                      disabled={isSubmitting}
-                      className={`w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-2 mt-4 transition-colors ${
-                        isSubmitting
-                          ? "bg-gray-400 text-white cursor-not-allowed"
-                          : "bg-gray-900 hover:bg-gray-800 text-white cursor-pointer"
-                      }`}
-                    >
-                      {isSubmitting ? "Sending..." : "Request Appointment"}
-                      {!isSubmitting && <ChevronRight size={18} />}
-                    </motion.button>
-                  </form>
-                )}
+                <AppointmentForm />
               </div>
             </div>
           </div>
         </div>
       </div>
     </section>
+  );
+};
+
+const BookPage = () => {
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-lg mx-auto space-y-4">
+        {/* Header */}
+        <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 text-center">
+          <Link to="/" className="inline-block">
+            <img
+              src="/logo.png"
+              alt="New Life Hospital Logo"
+              width="180"
+              height="52"
+              className="h-10 sm:h-12 w-auto object-contain mx-auto drop-shadow-sm"
+            />
+          </Link>
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900 mt-3">
+            New Life Hospital – Dr. Shilpa Sutariya, MD (Medicine)
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            Reception will confirm your appointment on WhatsApp.
+          </p>
+
+          <div className="mt-3.5 bg-blue-50/80 border border-blue-100 rounded-xl p-3 text-xs sm:text-sm text-gray-700">
+            <div className="flex items-center justify-center gap-1.5 font-semibold text-gray-900 mb-0.5">
+              <Clock className="w-4 h-4 text-primary" />
+              <span>Clinic Timings</span>
+            </div>
+            <p className="text-gray-600">
+              Morning 10–1, Evening 6–8{" "}
+              <span className="font-semibold text-amber-700">
+                (Sunday morning only)
+              </span>
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <a
+              href="tel:8140038191"
+              className="inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2.5 rounded-xl text-sm shadow-sm transition-all w-full sm:w-auto"
+            >
+              <PhoneCall className="w-4 h-4" />
+              Call 8140038191
+            </a>
+          </div>
+        </div>
+
+        {/* Appointment Form Card */}
+        <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-gray-100">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 sm:mb-6">
+            Appointment Details
+          </h2>
+          <AppointmentForm />
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -2581,85 +2667,90 @@ const ScrollToTop = () => {
   return null;
 };
 
+function AppContent() {
+  const location = useLocation();
+  const isBookRoute = location.pathname === "/book";
+
+  if (isBookRoute) {
+    return <BookPage />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background font-sans flex flex-col overflow-x-hidden">
+      <Navbar />
+      <main className="flex-grow">
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
+                <Hero />
+                <DoctorProfile />
+                <LocationSection />
+                <BookingSection />
+              </>
+            }
+          />
+          <Route
+            path="/awards"
+            element={
+              <div className="pt-16 md:pt-20">
+                <AchievementsSection />
+              </div>
+            }
+          />
+          <Route
+            path="/services"
+            element={
+              <div className="pt-16 md:pt-20">
+                <Services />
+              </div>
+            }
+          />
+          <Route
+            path="/about"
+            element={
+              <div className="pt-16 md:pt-20">
+                <AboutPage />
+              </div>
+            }
+          />
+          <Route
+            path="/reviews"
+            element={
+              <div className="pt-16 md:pt-20">
+                <Testimonials />
+              </div>
+            }
+          />
+          <Route
+            path="/health-check"
+            element={
+              <div className="pt-16 md:pt-20">
+                <HealthCheck />
+              </div>
+            }
+          />
+          <Route
+            path="/treatment-philosophy"
+            element={
+              <div className="pt-16 md:pt-20">
+                <TreatmentPhilosophy />
+              </div>
+            }
+          />
+        </Routes>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Router>
       <ScrollToTop />
-      <div className="min-h-screen bg-background font-sans flex flex-col overflow-x-hidden">
-        <Navbar />
-        <main className="flex-grow">
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <>
-                  <Hero />
-                  <DoctorProfile />
-                  <LocationSection />
-                  <BookingSection />
-                </>
-              }
-            />
-            <Route
-              path="/awards"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <AchievementsSection />
-                </div>
-              }
-            />
-            <Route
-              path="/services"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <Services />
-                </div>
-              }
-            />
-            <Route
-              path="/about"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <AboutPage />
-                </div>
-              }
-            />
-            <Route
-              path="/reviews"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <Testimonials />
-                </div>
-              }
-            />
-            <Route
-              path="/book"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <BookingSection />
-                </div>
-              }
-            />
-            <Route
-              path="/health-check"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <HealthCheck />
-                </div>
-              }
-            />
-            <Route
-              path="/treatment-philosophy"
-              element={
-                <div className="pt-16 md:pt-20">
-                  <TreatmentPhilosophy />
-                </div>
-              }
-            />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
+      <AppContent />
     </Router>
   );
 }
