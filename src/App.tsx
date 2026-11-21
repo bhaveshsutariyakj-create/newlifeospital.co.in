@@ -1062,58 +1062,234 @@ const LocationSection = () => {
   );
 };
 
+interface AppointmentConfig {
+  success?: boolean;
+  onlineBookingEnabled?: boolean;
+  sessionLabels?: {
+    morning?: string;
+    evening?: string;
+  };
+  availability?: Record<
+    string | number,
+    { name?: string; morning: boolean; evening: boolean }
+  >;
+}
+
+const API_BASE = "https://aryacare.in";
+
+const fetchAryaCare = async (path: string, init?: RequestInit) => {
+  try {
+    return await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    return await fetch(`https://www.aryacare.in${path}`, init);
+  }
+};
+
 const BookingSection = () => {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
     date: "",
-    session: "",
+    session: "" as "" | "morning" | "evening",
+    website: "",
   });
 
-  const { todayStr, maxDateStr } = useMemo(() => {
-    const today = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const todayFormatted = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  const [config, setConfig] = useState<AppointmentConfig | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
-    const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + 30);
-    const maxFormatted = `${maxDate.getFullYear()}-${pad(maxDate.getMonth() + 1)}-${pad(maxDate.getDate())}`;
-
-    return { todayStr: todayFormatted, maxDateStr: maxFormatted };
+  useEffect(() => {
+    fetchAryaCare("/api/public/appointments/config")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) {
+          setConfig(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load appointment config", err);
+      });
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const { todayStr, maxDateStr, currentHour } = useMemo(() => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    }).formatToParts(new Date());
+
+    const map: Record<string, string> = {};
+    parts.forEach((p) => {
+      map[p.type] = p.value;
+    });
+
+    const year = map.year;
+    const month = map.month.padStart(2, "0");
+    const day = map.day.padStart(2, "0");
+    const today = `${year}-${month}-${day}`;
+    let hour = parseInt(map.hour, 10);
+    if (hour === 24) hour = 0;
+
+    const [y, m, d] = today.split("-").map(Number);
+    const maxD = new Date(y, m - 1, d + 30);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const maxDate = `${maxD.getFullYear()}-${pad(maxD.getMonth() + 1)}-${pad(maxD.getDate())}`;
+
+    return { todayStr: today, maxDateStr: maxDate, currentHour: hour };
+  }, []);
+
+  const getSessionAvailability = (dateStr: string) => {
+    let morningAvail = true;
+    let eveningAvail = true;
+
+    if (dateStr) {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+
+      if (config?.availability?.[dayOfWeek]) {
+        morningAvail = Boolean(config.availability[dayOfWeek].morning);
+        eveningAvail = Boolean(config.availability[dayOfWeek].evening);
+      }
+
+      if (dateStr === todayStr) {
+        if (currentHour >= 13) {
+          morningAvail = false;
+        }
+        if (currentHour >= 20) {
+          eveningAvail = false;
+        }
+      }
+    }
+
+    return { morning: morningAvail, evening: eveningAvail };
+  };
+
+  const { morning: isMorningAvailable, evening: isEveningAvailable } = useMemo(() => {
+    return getSessionAvailability(formData.date);
+  }, [formData.date, config, todayStr, currentHour]);
+
+  useEffect(() => {
+    if (formData.session === "morning" && !isMorningAvailable) {
+      setFormData((prev) => ({ ...prev, session: "" }));
+    } else if (formData.session === "evening" && !isEveningAvailable) {
+      setFormData((prev) => ({ ...prev, session: "" }));
+    }
+  }, [formData.date, isMorningAvailable, isEveningAvailable]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name.trim() || !formData.phone.trim() || !formData.date) {
-      alert("Please fill in all the details to book your appointment.");
+      setStatusMessage({
+        type: "error",
+        text: "Please fill in all the details to request your appointment.",
+      });
+      return;
+    }
+
+    const cleanMobile = formData.phone.replace(/\D/g, "");
+    const mobile =
+      cleanMobile.length === 12 && cleanMobile.startsWith("91")
+        ? cleanMobile.slice(2)
+        : cleanMobile.length === 11 && cleanMobile.startsWith("0")
+        ? cleanMobile.slice(1)
+        : cleanMobile;
+
+    if (mobile.length !== 10) {
+      setStatusMessage({
+        type: "error",
+        text: "Please enter a valid 10-digit mobile number.",
+      });
       return;
     }
 
     if (!formData.session) {
-      alert("Please select an appointment session (Morning or Evening).");
+      setStatusMessage({
+        type: "error",
+        text: "Please select an appointment session (Morning or Evening).",
+      });
       return;
     }
 
     if (formData.date < todayStr || formData.date > maxDateStr) {
-      alert("Please select a date between today and the next 30 days.");
+      setStatusMessage({
+        type: "error",
+        text: "Please select a date between today and the next 30 days.",
+      });
       return;
     }
 
-    const text = `Hello Doctor,
+    const avail = getSessionAvailability(formData.date);
+    if (formData.session === "morning" && !avail.morning) {
+      setStatusMessage({
+        type: "error",
+        text: "The morning session is closed for the selected date.",
+      });
+      return;
+    }
+    if (formData.session === "evening" && !avail.evening) {
+      setStatusMessage({
+        type: "error",
+        text: "The evening session is closed for the selected date.",
+      });
+      return;
+    }
 
-I would like to book an appointment.
+    setIsSubmitting(true);
+    setStatusMessage(null);
 
-Name: ${formData.name.trim()}
-Phone: ${formData.phone.trim()}
-Date: ${formData.date}
-Session: ${formData.session}
+    try {
+      const res = await fetchAryaCare("/api/public/appointments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          mobile: mobile,
+          date: formData.date,
+          session: formData.session,
+          website: formData.website || "",
+        }),
+      });
 
-Kindly confirm my appointment.
+      const data = await res.json().catch(() => null);
 
-Thank you.`;
-
-    window.open(WA_LINK(text), "_blank");
+      if (res.ok && data?.success) {
+        setStatusMessage({
+          type: "success",
+          text: "Request received ✓ Reception will confirm on WhatsApp shortly.",
+        });
+        setFormData({
+          name: "",
+          phone: "",
+          date: "",
+          session: "",
+          website: "",
+        });
+      } else {
+        const errorMsg =
+          data?.error || data?.message || "Please call 8140038191";
+        setStatusMessage({
+          type: "error",
+          text: errorMsg,
+        });
+      }
+    } catch {
+      setStatusMessage({
+        type: "error",
+        text: "Please call 8140038191",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (
@@ -1146,8 +1322,7 @@ Thank you.`;
                 Book Your Visit Today
               </h3>
               <p className="text-primary-100 text-base md:text-lg mb-8 text-white/80">
-                Skip the waiting room. Reserve your preferred slot online and we
-                will confirm instantly via WhatsApp.
+                Reception will confirm your appointment on WhatsApp.
               </p>
 
               <div className="space-y-6">
@@ -1185,102 +1360,152 @@ Thank you.`;
                 <h4 className="text-xl md:text-2xl font-bold text-gray-900 mb-4 md:mb-6">
                   Appointment Details
                 </h4>
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  <div className="space-y-1">
-                    <label htmlFor="name" className="text-sm font-semibold text-gray-700">
-                      Full Name
-                    </label>
-                    <input
-                      id="name"
-                      required
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
-                      placeholder="John Doe"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="phone" className="text-sm font-semibold text-gray-700">
-                      Phone Number
-                    </label>
-                    <input
-                      id="phone"
-                      required
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
-                      placeholder="+91 98765 43210"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="date" className="text-sm font-semibold text-gray-700">
-                      Date
-                    </label>
-                    <input
-                      id="date"
-                      required
-                      type="date"
-                      name="date"
-                      min={todayStr}
-                      max={maxDateStr}
-                      value={formData.date}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-gray-700 block">
-                      Preferred Session
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            session: "Morning (10 AM – 1 PM)",
-                          }))
-                        }
-                        className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center cursor-pointer min-h-[48px] ${
-                          formData.session === "Morning (10 AM – 1 PM)"
-                            ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20"
-                            : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200"
-                        }`}
-                      >
-                        Morning (10 AM – 1 PM)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            session: "Evening (6 PM – 8 PM)",
-                          }))
-                        }
-                        className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center cursor-pointer min-h-[48px] ${
-                          formData.session === "Evening (6 PM – 8 PM)"
-                            ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20"
-                            : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200"
-                        }`}
-                      >
-                        Evening (6 PM – 8 PM)
-                      </button>
-                    </div>
-                  </div>
-                  <motion.button
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    type="submit"
-                    className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 mt-4 transition-colors"
+
+                {statusMessage && (
+                  <div
+                    className={`p-4 mb-5 rounded-xl text-sm font-medium transition-all ${
+                      statusMessage.type === "success"
+                        ? "bg-green-50 text-green-800 border border-green-200"
+                        : "bg-red-50 text-red-800 border border-red-200"
+                    }`}
                   >
-                    Confirm via WhatsApp
-                    <ChevronRight size={18} />
-                  </motion.button>
-                </form>
+                    {statusMessage.text}
+                  </div>
+                )}
+
+                {config && config.onlineBookingEnabled === false ? (
+                  <div className="py-8 text-center space-y-2">
+                    <p className="text-lg font-semibold text-gray-800">
+                      Please call{" "}
+                      <a
+                        href="tel:8140038191"
+                        className="text-primary hover:underline font-bold"
+                      >
+                        8140038191
+                      </a>
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
+                      <label htmlFor="website">Website</label>
+                      <input
+                        id="website"
+                        type="text"
+                        name="website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        value={formData.website}
+                        onChange={handleChange}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="name" className="text-sm font-semibold text-gray-700">
+                        Full Name
+                      </label>
+                      <input
+                        id="name"
+                        required
+                        type="text"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+                        placeholder="John Doe"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="phone" className="text-sm font-semibold text-gray-700">
+                        Phone Number
+                      </label>
+                      <input
+                        id="phone"
+                        required
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+                        placeholder="+91 98765 43210"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="date" className="text-sm font-semibold text-gray-700">
+                        Date
+                      </label>
+                      <input
+                        id="date"
+                        required
+                        type="date"
+                        name="date"
+                        min={todayStr}
+                        max={maxDateStr}
+                        value={formData.date}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-gray-700 block">
+                        Preferred Session
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          disabled={!isMorningAvailable}
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              session: "morning",
+                            }))
+                          }
+                          className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
+                            !isMorningAvailable
+                              ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
+                              : formData.session === "morning"
+                              ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
+                              : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
+                          }`}
+                        >
+                          Morning (10 AM – 1 PM)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!isEveningAvailable}
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              session: "evening",
+                            }))
+                          }
+                          className={`w-full py-3.5 px-3 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center text-center min-h-[48px] ${
+                            !isEveningAvailable
+                              ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
+                              : formData.session === "evening"
+                              ? "bg-primary text-white border-primary shadow-md shadow-primary/25 ring-2 ring-primary/20 cursor-pointer"
+                              : "bg-background/50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer"
+                          }`}
+                        >
+                          Evening (6 PM – 8 PM)
+                        </button>
+                      </div>
+                    </div>
+                    <motion.button
+                      whileHover={isSubmitting ? {} : { scale: 1.01 }}
+                      whileTap={isSubmitting ? {} : { scale: 0.98 }}
+                      type="submit"
+                      disabled={isSubmitting}
+                      className={`w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-2 mt-4 transition-colors ${
+                        isSubmitting
+                          ? "bg-gray-400 text-white cursor-not-allowed"
+                          : "bg-gray-900 hover:bg-gray-800 text-white cursor-pointer"
+                      }`}
+                    >
+                      {isSubmitting ? "Sending..." : "Request Appointment"}
+                      {!isSubmitting && <ChevronRight size={18} />}
+                    </motion.button>
+                  </form>
+                )}
               </div>
             </div>
           </div>
