@@ -378,16 +378,7 @@ const Navbar = () => {
               transition={{ delay: 0.4 }}
             >
               <Link
-                to="/#book"
-                onClick={(e) => {
-                  if (window.location.pathname === "/") {
-                    e.preventDefault();
-                    document
-                      .getElementById("book")
-                      ?.scrollIntoView({ behavior: "smooth" });
-                    window.history.pushState(null, "", "/#book");
-                  }
-                }}
+                to="/book"
                 className="bg-primary hover:bg-primary-dark text-white px-6 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg shadow-primary/30 hover:shadow-primary/50"
               >
                 Book Appointment
@@ -448,17 +439,8 @@ const Navbar = () => {
                 </div>
               ))}
               <Link
-                to="/#book"
-                onClick={(e) => {
-                  handleNavClick();
-                  if (window.location.pathname === "/") {
-                    e.preventDefault();
-                    document
-                      .getElementById("book")
-                      ?.scrollIntoView({ behavior: "smooth" });
-                    window.history.pushState(null, "", "/#book");
-                  }
-                }}
+                to="/book"
+                onClick={handleNavClick}
                 className="block px-3 py-3 rounded-md text-base font-bold text-primary hover:bg-primary/5 mt-4 text-center border border-primary/20"
               >
                 Book Appointment
@@ -638,13 +620,13 @@ const Hero = () => {
           transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
           className="flex flex-col sm:flex-row gap-4 sm:gap-5 items-center justify-center w-full max-w-lg mx-auto z-10 px-4 sm:px-0"
         >
-          <a
-            href="/#book"
+          <Link
+            to="/book"
             className="w-full sm:w-auto inline-flex justify-center items-center gap-2 bg-gradient-to-r from-green-500 to-green-600 text-white px-8 md:px-10 py-3.5 md:py-4 rounded-2xl md:rounded-full font-bold transition-all duration-300 shadow-lg shadow-green-500/25 hover:shadow-green-500/40 hover:-translate-y-0.5"
           >
             <MessageCircle className="w-5 h-5 flex-shrink-0" />
             <span>Book via WhatsApp</span>
-          </a>
+          </Link>
           <a
             href={`tel:${PHONE_NUMBER}`}
             className="w-full sm:w-auto inline-flex justify-center items-center gap-2 bg-white text-gray-900 border border-gray-200 hover:border-primary/30 hover:bg-gray-50 px-8 md:px-10 py-3.5 md:py-4 rounded-2xl md:rounded-full font-bold transition-all duration-300 shadow-sm hover:shadow hover:-translate-y-0.5"
@@ -968,14 +950,14 @@ const Services = () => {
                 {selectedService.description}
               </p>
               
-              <a 
-                href="/#book" 
+              <Link 
+                to="/book" 
                 onClick={() => setSelectedService(null)}
                 className="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 md:py-4 px-6 rounded-lg md:rounded-xl transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-primary/30 flex items-center justify-center gap-2 text-base md:text-lg"
               >
                 <CalendarClock size={18} className="md:w-5 md:h-5" />
                 Book Consultation
-              </a>
+              </Link>
             </motion.div>
           </motion.div>
         )}
@@ -1534,12 +1516,31 @@ const BookingSection = () => {
               </div>
             </div>
 
-            <div className="p-4 md:p-6 lg:p-12">
-              <div className="bg-white rounded-2xl p-6 md:p-8 shadow-lg">
-                <h4 className="text-xl md:text-2xl font-bold text-gray-900 mb-4 md:mb-6">
-                  Appointment Details
+            <div className="p-6 md:p-8 lg:p-12 flex items-center">
+              <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-xl w-full text-center">
+                <h4 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
+                  Choose Consultation Mode
                 </h4>
-                <AppointmentForm />
+                <p className="text-gray-600 text-sm sm:text-base mb-6">
+                  Select your preferred consultation method to book in seconds.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+                  <Link
+                    to="/book?mode=clinic"
+                    className="flex-1 inline-flex items-center justify-center gap-2.5 bg-primary hover:bg-primary-dark text-white font-bold py-4 px-6 rounded-xl shadow-lg shadow-primary/25 transition-all hover:scale-[1.02] text-sm sm:text-base"
+                  >
+                    <Building2 className="w-5 h-5 flex-shrink-0" />
+                    <span>Book clinic visit</span>
+                  </Link>
+                  <Link
+                    to="/book?mode=online"
+                    className="flex-1 inline-flex items-center justify-center gap-2.5 bg-blue-50 hover:bg-blue-100 text-primary border-2 border-primary/20 hover:border-primary/40 font-bold py-4 px-6 rounded-xl transition-all hover:scale-[1.02] text-sm sm:text-base"
+                  >
+                    <Video className="w-5 h-5 flex-shrink-0" />
+                    <span>Online video consultation</span>
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
@@ -2541,7 +2542,20 @@ const OnlineConsultationForm = ({ onlineConfig }: OnlineConsultationFormProps) =
 const BookPage = () => {
   const [onlineConfig, setOnlineConfig] = useState<any>(null);
   const [isOnlineEnabled, setIsOnlineEnabled] = useState(false);
-  const [consultationMode, setConsultationMode] = useState<"clinic" | "online">("clinic");
+  const location = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedMode = searchParams.get("mode");
+  const [consultationMode, setConsultationMode] = useState<"clinic" | "online">(
+    requestedMode === "online" ? "online" : "clinic"
+  );
+
+  useEffect(() => {
+    if (requestedMode === "online") {
+      setConsultationMode("online");
+    } else if (requestedMode === "clinic") {
+      setConsultationMode("clinic");
+    }
+  }, [requestedMode]);
 
   useEffect(() => {
     fetchAryaCare("/api/public/online/config")
@@ -2610,7 +2624,7 @@ const BookPage = () => {
 
         {/* Appointment Form Card */}
         <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-gray-100">
-          {isOnlineEnabled && (
+          {(isOnlineEnabled || consultationMode === "online") && (
             <div className="flex bg-gray-100 p-1 rounded-xl mb-6">
               <button
                 type="button"
@@ -3070,7 +3084,7 @@ const AboutPage = () => {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                to="/#book"
+                to="/book"
                 className="w-full sm:w-auto flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white px-8 py-4 rounded-xl font-bold transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 text-lg"
               >
                 <CalendarClock size={20} />
@@ -3319,7 +3333,7 @@ const Footer = () => {
                 { name: "Profile", href: "/#profile" },
                 { name: "Services", href: "/services" },
                 { name: "Reviews", href: "/reviews" },
-                { name: "Book Appointment", href: "/#book" },
+                { name: "Book Appointment", href: "/book" },
               ].map((link) => (
                 <li key={link.name}>
                   <Link
@@ -3513,13 +3527,13 @@ const HealthCheck = () => {
                 </p>
               </div>
 
-              <a
-                href="/#book"
+              <Link
+                to="/book"
                 className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-bold py-4 px-10 rounded-full transition-transform duration-200 hover:scale-105 shadow-lg shadow-primary/30"
               >
                 <CalendarClock size={20} />
                 Book My Consultation
-              </a>
+              </Link>
             </div>
           )}
 
@@ -3755,7 +3769,7 @@ const TreatmentPhilosophy = () => {
               Thousands of patients have benefited from our personalized and holistic treatment approach.
             </h2>
             <Link
-              to="/#book"
+              to="/book"
               className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-bold py-4 px-10 rounded-full transition-all duration-300 hover:scale-105 shadow-[0_8px_25px_-5px_rgba(79,140,255,0.4)] text-lg"
             >
               <CalendarClock size={20} />
