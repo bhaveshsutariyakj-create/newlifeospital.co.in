@@ -38,6 +38,9 @@ import {
   Cross,
   Award,
   Navigation,
+  Video,
+  Building2,
+  Calendar,
 } from "lucide-react";
 
 const DOCTOR_NAME = "Dr. Shilpa Sutariya";
@@ -1075,13 +1078,16 @@ interface AppointmentConfig {
   >;
 }
 
-const API_BASE = "https://aryacare.in";
+const API_BASE = (import.meta as any).env?.VITE_ARYACARE_API || "https://aryacare.in";
 
 const fetchAryaCare = async (path: string, init?: RequestInit) => {
   try {
     return await fetch(`${API_BASE}${path}`, init);
-  } catch {
-    return await fetch(`https://www.aryacare.in${path}`, init);
+  } catch (err) {
+    if (API_BASE === "https://aryacare.in") {
+      return await fetch(`https://www.aryacare.in${path}`, init);
+    }
+    throw err;
   }
 };
 
@@ -1543,7 +1549,1020 @@ const BookingSection = () => {
   );
 };
 
+const loadRazorpayScript = (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if (typeof window !== "undefined" && (window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
+interface OnlineConsultationFormProps {
+  onlineConfig: any;
+}
+
+const parseSlotTime = (rawTime: string): { hour: number; minute: number; label12: string } => {
+  if (!rawTime) return { hour: 0, minute: 0, label12: "" };
+  const str = String(rawTime).trim();
+
+  const match12 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+  if (match12) {
+    let h = parseInt(match12[1], 10);
+    const m = parseInt(match12[2], 10);
+    const ampm = match12[3].toUpperCase();
+    let h24 = h;
+    if (ampm === "PM" && h < 12) h24 += 12;
+    if (ampm === "AM" && h === 12) h24 = 0;
+    const h12 = h24 % 12 || 12;
+    return {
+      hour: h24,
+      minute: m,
+      label12: `${h12}:${String(m).padStart(2, "0")} ${ampm}`,
+    };
+  }
+
+  const match24 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match24) {
+    const h = parseInt(match24[1], 10);
+    const m = parseInt(match24[2], 10);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return {
+      hour: h,
+      minute: m,
+      label12: `${h12}:${String(m).padStart(2, "0")} ${ampm}`,
+    };
+  }
+
+  if (str.includes("T") || (str.includes("-") && str.includes(":"))) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kolkata",
+        hour: "numeric",
+        minute: "numeric",
+        hour12: false,
+      }).formatToParts(d);
+      const h = Number(parts.find((p) => p.type === "hour")?.value || 0);
+      const m = Number(parts.find((p) => p.type === "minute")?.value || 0);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h % 12 || 12;
+      return {
+        hour: h,
+        minute: m,
+        label12: `${h12}:${String(m).padStart(2, "0")} ${ampm}`,
+      };
+    }
+  }
+
+  return { hour: 0, minute: 0, label12: str };
+};
+
+const formatConfirmationMessage = (dateStr: string, slotTime: string): string => {
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    const weekdayFull = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      weekday: "long",
+    }).format(dateObj);
+    const dd = String(d).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    const yyyy = String(y);
+    const t12 = parseSlotTime(slotTime).label12 || slotTime;
+    return `Confirmed ✓ ${weekdayFull}, ${dd}-${mm}-${yyyy} at ${t12}. Details and video link sent on WhatsApp.`;
+  } catch {
+    return `Confirmed ✓ ${dateStr} at ${slotTime}. Details and video link sent on WhatsApp.`;
+  }
+};
+
+const formatSelectedSummary = (dateStr: string, slotTime: string, doctorName: string): string => {
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    const weekdayShort = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      weekday: "short",
+    }).format(dateObj);
+    const dd = String(d).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    const yyyy = String(y);
+    const t12 = parseSlotTime(slotTime).label12 || slotTime;
+    const docClean = doctorName ? doctorName.split(",")[0].trim() : "Dr. Shilpa Sutariya";
+    return `${weekdayShort} ${dd}-${mm}-${yyyy}, ${t12} · ${docClean}`;
+  } catch {
+    const docClean = doctorName ? doctorName.split(",")[0].trim() : "Dr. Shilpa Sutariya";
+    return `${dateStr}, ${slotTime} · ${docClean}`;
+  }
+};
+
+const isDayOnlineTimingAvailable = (dayOfWeek: number, config: any): boolean => {
+  if (!config) return true;
+  if (Array.isArray(config.workingDays) && config.workingDays.length > 0) {
+    if (!config.workingDays.includes(dayOfWeek) && !config.workingDays.includes(String(dayOfWeek))) {
+      return false;
+    }
+  }
+  if (Array.isArray(config.closedDays) && (config.closedDays.includes(dayOfWeek) || config.closedDays.includes(String(dayOfWeek)))) {
+    return false;
+  }
+  if (Array.isArray(config.offDays) && (config.offDays.includes(dayOfWeek) || config.offDays.includes(String(dayOfWeek)))) {
+    return false;
+  }
+  if (config.availability) {
+    const avail = config.availability[dayOfWeek] ?? config.availability[String(dayOfWeek)];
+    if (avail !== undefined) {
+      if (typeof avail === "boolean") return avail;
+      if (typeof avail === "object" && avail !== null) {
+        if (avail.enabled === false || avail.online === false) return false;
+        if (avail.morning === false && avail.evening === false && avail.afternoon === false && !avail.slots) {
+          return false;
+        }
+      }
+    }
+  }
+  if (config.schedule) {
+    const sch = config.schedule[dayOfWeek] ?? config.schedule[String(dayOfWeek)];
+    if (sch !== undefined) {
+      if (typeof sch === "boolean") return sch;
+      if (typeof sch === "object" && sch !== null) {
+        if (sch.enabled === false || sch.isWorkingDay === false) return false;
+      }
+    }
+  }
+  return true;
+};
+
+const OnlineConsultationForm = ({ onlineConfig }: OnlineConsultationFormProps) => {
+  const doctors = Array.isArray(onlineConfig?.doctors) && onlineConfig.doctors.length > 0
+    ? onlineConfig.doctors
+    : onlineConfig?.doctor
+    ? [onlineConfig.doctor]
+    : [
+        {
+          name: "Dr. Shilpa Sutariya, MD (Medicine)",
+          id: onlineConfig?.providerId || "shilpa-sutariya",
+          providerId: onlineConfig?.providerId || "shilpa-sutariya",
+        },
+      ];
+
+  const [selectedDoctorId, setSelectedDoctorId] = useState(
+    doctors[0]?.id || doctors[0]?.providerId || doctors[0]?._id || "shilpa-sutariya"
+  );
+
+  const selectedDoctor =
+    doctors.find(
+      (d: any) => (d.id || d.providerId || d._id) === selectedDoctorId
+    ) || doctors[0];
+
+  const providerId =
+    selectedDoctor?.id ||
+    selectedDoctor?.providerId ||
+    selectedDoctor?._id ||
+    onlineConfig?.providerId ||
+    "shilpa-sutariya";
+
+  const next14Days = useMemo(() => {
+    const days = [];
+    const now = new Date();
+    const istFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    });
+    const parts = istFormatter.formatToParts(now);
+    const pMap: Record<string, string> = {};
+    parts.forEach((p) => (pMap[p.type] = p.value));
+    const baseYear = Number(pMap.year);
+    const baseMonth = Number(pMap.month) - 1;
+    const baseDay = Number(pMap.day);
+
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(baseYear, baseMonth, baseDay + i, 12, 0, 0);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const weekdayShort = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kolkata",
+        weekday: "short",
+      }).format(d);
+      const monthShort = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kolkata",
+        month: "short",
+      }).format(d);
+      const dayNum = d.getDate();
+
+      let label = `${weekdayShort} ${dayNum} ${monthShort}`;
+      if (i === 0) label = "Today";
+      else if (i === 1) label = "Tomorrow";
+
+      days.push({
+        dateStr,
+        label,
+        dayOfWeek: d.getDay(),
+      });
+    }
+    return days;
+  }, []);
+
+  const [date, setDate] = useState(next14Days[0]?.dateStr || "");
+  const [dateSlotCounts, setDateSlotCounts] = useState<Record<string, number | null>>({});
+  const [slots, setSlots] = useState<any[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState("");
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [activeTab, setActiveTab] = useState<"Morning" | "Afternoon" | "Evening" | null>(null);
+
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState("");
+
+  const [feeData, setFeeData] = useState<{
+    fee: number;
+    visitLabel?: string;
+  } | null>(null);
+  const [isLoadingFee, setIsLoadingFee] = useState(false);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const validMobile = useMemo(() => {
+    const clean = phone.replace(/\D/g, "");
+    if (clean.length === 12 && clean.startsWith("91")) return clean.slice(2);
+    if (clean.length === 11 && clean.startsWith("0")) return clean.slice(1);
+    if (clean.length === 10) return clean;
+    return "";
+  }, [phone]);
+
+  // Load fee when valid 10-digit mobile is entered and when doctor changes
+  useEffect(() => {
+    if (!validMobile || validMobile.length !== 10) {
+      setFeeData(null);
+      setIsLoadingFee(false);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsLoadingFee(true);
+
+    fetchAryaCare(
+      `/api/public/online/fee?providerId=${encodeURIComponent(
+        providerId
+      )}&mobile=${encodeURIComponent(validMobile)}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isCurrent) return;
+        if (data && (data.fee !== undefined || data.amount !== undefined)) {
+          const rawFee = data.fee !== undefined ? data.fee : data.amount;
+          const fee = Number(rawFee);
+
+          const rawKind =
+            data.visit_kind ||
+            data.visitKind ||
+            data.visitType ||
+            data.type ||
+            data.label ||
+            "";
+          let visitLabel = "";
+          const s = String(rawKind).toLowerCase();
+          if (s.includes("follow")) {
+            visitLabel = "Follow-up";
+          } else if (s.includes("first")) {
+            visitLabel = "First visit";
+          } else if (data.isFollowUp === true) {
+            visitLabel = "Follow-up";
+          } else if (data.isFollowUp === false) {
+            visitLabel = "First visit";
+          } else if (rawKind) {
+            visitLabel = String(rawKind);
+          }
+
+          setFeeData({ fee, visitLabel });
+        } else {
+          setFeeData(null);
+        }
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setFeeData(null);
+      })
+      .finally(() => {
+        if (isCurrent) {
+          setIsLoadingFee(false);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [validMobile, providerId]);
+
+  // Pre-fetch slots count for next 14 days
+  useEffect(() => {
+    let isMounted = true;
+    next14Days.forEach((day) => {
+      const hasTiming = isDayOnlineTimingAvailable(day.dayOfWeek, onlineConfig);
+      if (!hasTiming) {
+        setDateSlotCounts((prev) => ({ ...prev, [day.dateStr]: 0 }));
+        return;
+      }
+      fetchAryaCare(
+        `/api/public/online/slots?date=${encodeURIComponent(
+          day.dateStr
+        )}&providerId=${encodeURIComponent(providerId)}`
+      )
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!isMounted || !data) return;
+          const list = Array.isArray(data) ? data : data.slots || data.data || [];
+          const freeCount = list.filter((s: any) => {
+            if (typeof s === "string") return true;
+            return s.available !== false && !s.booked && !s.disabled;
+          }).length;
+          setDateSlotCounts((prev) => ({ ...prev, [day.dateStr]: freeCount }));
+        })
+        .catch(() => {});
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [providerId, onlineConfig, next14Days]);
+
+  // Auto-select first available date if selected date has 0 slots or no timing
+  useEffect(() => {
+    if (!date) return;
+    const curDay = next14Days.find((d) => d.dateStr === date);
+    const hasTiming = curDay
+      ? isDayOnlineTimingAvailable(curDay.dayOfWeek, onlineConfig)
+      : true;
+    const count = dateSlotCounts[date];
+    if (!hasTiming || count === 0) {
+      const firstAvailable = next14Days.find((d) => {
+        const t = isDayOnlineTimingAvailable(d.dayOfWeek, onlineConfig);
+        const c = dateSlotCounts[d.dateStr];
+        return t && c !== 0;
+      });
+      if (firstAvailable && firstAvailable.dateStr !== date) {
+        setDate(firstAvailable.dateStr);
+      }
+    }
+  }, [date, dateSlotCounts, next14Days, onlineConfig]);
+
+  // Fetch slots for selected date
+  useEffect(() => {
+    if (!date) return;
+    setIsLoadingSlots(true);
+    setSelectedSlot("");
+    fetchAryaCare(
+      `/api/public/online/slots?date=${encodeURIComponent(date)}&providerId=${encodeURIComponent(providerId)}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const slotList = Array.isArray(data)
+          ? data
+          : data.slots || data.data || [];
+        setSlots(slotList);
+        const freeCount = slotList.filter((s: any) => {
+          if (typeof s === "string") return true;
+          return s.available !== false && !s.booked && !s.disabled;
+        }).length;
+        setDateSlotCounts((prev) => ({ ...prev, [date]: freeCount }));
+      })
+      .catch(() => {
+        setSlots([]);
+        setDateSlotCounts((prev) => ({ ...prev, [date]: 0 }));
+      })
+      .finally(() => {
+        setIsLoadingSlots(false);
+      });
+  }, [date, providerId]);
+
+  // Group slots under Morning, Afternoon, Evening tabs
+  const { groupedSlots, availableTabs, totalFreeSlots } = useMemo(() => {
+    const morning: any[] = [];
+    const afternoon: any[] = [];
+    const evening: any[] = [];
+
+    slots.forEach((s) => {
+      const rawTime = typeof s === "string" ? s : s.time || s.label || s.slot || "";
+      const parsed = parseSlotTime(rawTime);
+      const isAvail =
+        typeof s === "object"
+          ? s.available !== false && !s.booked && !s.disabled
+          : true;
+      const value = typeof s === "string" ? s : s.slot || s.time || parsed.label12;
+
+      let tab: "Morning" | "Afternoon" | "Evening" = "Morning";
+      if (parsed.hour < 12) {
+        tab = "Morning";
+      } else if (parsed.hour < 17 || (parsed.hour === 17 && parsed.minute === 0)) {
+        tab = "Afternoon";
+      } else {
+        tab = "Evening";
+      }
+
+      const item = {
+        raw: s,
+        value,
+        time12: parsed.label12,
+        hour: parsed.hour,
+        minute: parsed.minute,
+        isAvailable: isAvail,
+        tab,
+      };
+
+      if (tab === "Morning") morning.push(item);
+      else if (tab === "Afternoon") afternoon.push(item);
+      else evening.push(item);
+    });
+
+    const sorter = (a: any, b: any) =>
+      a.hour === b.hour ? a.minute - b.minute : a.hour - b.hour;
+    morning.sort(sorter);
+    afternoon.sort(sorter);
+    evening.sort(sorter);
+
+    const tabs: ("Morning" | "Afternoon" | "Evening")[] = [];
+    if (morning.some((s) => s.isAvailable)) tabs.push("Morning");
+    if (afternoon.some((s) => s.isAvailable)) tabs.push("Afternoon");
+    if (evening.some((s) => s.isAvailable)) tabs.push("Evening");
+
+    const totalFree =
+      morning.filter((s) => s.isAvailable).length +
+      afternoon.filter((s) => s.isAvailable).length +
+      evening.filter((s) => s.isAvailable).length;
+
+    return {
+      groupedSlots: {
+        Morning: morning,
+        Afternoon: afternoon,
+        Evening: evening,
+      },
+      availableTabs: tabs,
+      totalFreeSlots: totalFree,
+    };
+  }, [slots]);
+
+  // Auto-select first available tab
+  useEffect(() => {
+    if (availableTabs.length > 0) {
+      if (!activeTab || !availableTabs.includes(activeTab)) {
+        setActiveTab(availableTabs[0]);
+      }
+    } else {
+      setActiveTab(null);
+    }
+  }, [availableTabs, activeTab]);
+
+  const selectedSlot12 = useMemo(() => {
+    if (!selectedSlot) return "";
+    const all = [
+      ...groupedSlots.Morning,
+      ...groupedSlots.Afternoon,
+      ...groupedSlots.Evening,
+    ];
+    const found = all.find(
+      (s) => s.value === selectedSlot || s.time12 === selectedSlot
+    );
+    if (found) return found.time12;
+    return parseSlotTime(selectedSlot).label12 || selectedSlot;
+  }, [selectedSlot, groupedSlots]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!name.trim() || !phone.trim() || !date || !age || !gender) {
+      setStatusMessage({
+        type: "error",
+        text: "Please fill in all the details.",
+      });
+      return;
+    }
+
+    if (!validMobile || validMobile.length !== 10) {
+      setStatusMessage({
+        type: "error",
+        text: "Please enter a valid 10-digit mobile number.",
+      });
+      return;
+    }
+
+    if (!selectedSlot) {
+      setStatusMessage({
+        type: "error",
+        text: "Please select an available time slot.",
+      });
+      return;
+    }
+
+    if (!consent) {
+      setStatusMessage({
+        type: "error",
+        text: "Please agree to an online video consultation.",
+      });
+      return;
+    }
+
+    if (!feeData) {
+      setStatusMessage({
+        type: "error",
+        text: "Please wait until the consultation fee is loaded.",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setStatusMessage(null);
+
+    const source = getSourceParam();
+
+    try {
+      const bookRes = await fetchAryaCare("/api/public/online/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId,
+          doctorId: providerId,
+          date,
+          slot: selectedSlot,
+          name: name.trim(),
+          mobile: validMobile,
+          age: Number(age),
+          gender,
+          consent: true,
+          amount: feeData.fee,
+          source,
+          website: website || "",
+        }),
+      });
+
+      const bookData = await bookRes.json().catch(() => null);
+
+      if (!bookRes.ok || !bookData || bookData.success === false) {
+        const errorMsg =
+          bookData?.error || bookData?.message || "Booking request failed. Please call 8140038191.";
+        setStatusMessage({
+          type: "error",
+          text: errorMsg,
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        setStatusMessage({
+          type: "error",
+          text: "Failed to load payment gateway. Please try again or call 8140038191.",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const keyId = bookData.key_id || bookData.keyId || bookData.key;
+      const orderId = bookData.order_id || bookData.orderId || bookData.order;
+      const amount = bookData.amount || feeData.fee * 100;
+
+      const rzp = new (window as any).Razorpay({
+        key: keyId,
+        order_id: orderId,
+        amount: amount,
+        currency: bookData.currency || "INR",
+        name: "New Life Hospital",
+        description: `Online Consultation with ${selectedDoctor.name || "Doctor"}`,
+        prefill: {
+          name: name.trim(),
+          contact: validMobile,
+        },
+        theme: {
+          color: "#2563eb",
+        },
+        handler: async function (response: any) {
+          try {
+            const verifyRes = await fetchAryaCare("/api/public/online/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                order_id: orderId,
+                orderId: orderId,
+                bookingId: bookData.bookingId || bookData.id,
+              }),
+            });
+
+            const verifyData = await verifyRes.json().catch(() => null);
+
+            if (verifyRes.ok && (verifyData?.success ?? true)) {
+              setStatusMessage({
+                type: "success",
+                text: formatConfirmationMessage(date, selectedSlot12 || selectedSlot),
+              });
+              setName("");
+              setPhone("");
+              setAge("");
+              setGender("");
+              setSelectedSlot("");
+              setConsent(false);
+              setFeeData(null);
+            } else {
+              setStatusMessage({
+                type: "error",
+                text:
+                  verifyData?.error ||
+                  verifyData?.message ||
+                  "Payment verification failed. Please call 8140038191.",
+              });
+            }
+          } catch {
+            setStatusMessage({
+              type: "error",
+              text: "Payment verification error. If money was deducted, please call 8140038191.",
+            });
+          } finally {
+            setIsSubmitting(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setStatusMessage({
+              type: "error",
+              text: "Payment not completed. Slot held for 10 minutes, please try again.",
+            });
+            setIsSubmitting(false);
+          },
+        },
+      });
+
+      rzp.on("payment.failed", function (response: any) {
+        setStatusMessage({
+          type: "error",
+          text:
+            response?.error?.description ||
+            "Payment not completed. Slot held for 10 minutes, please try again.",
+        });
+        setIsSubmitting(false);
+      });
+
+      rzp.open();
+    } catch {
+      setStatusMessage({
+        type: "error",
+        text: "Please call 8140038191",
+      });
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {statusMessage && (
+        <div
+          className={`p-4 mb-5 rounded-xl text-sm font-medium transition-all ${
+            statusMessage.type === "success"
+              ? "bg-green-50 text-green-800 border border-green-200"
+              : "bg-red-50 text-red-800 border border-red-200"
+          }`}
+        >
+          {statusMessage.text}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+        <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
+          <label htmlFor="online-website">Website</label>
+          <input
+            id="online-website"
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-semibold text-gray-700 block">Doctor</label>
+          {doctors.length > 1 ? (
+            <select
+              value={selectedDoctorId}
+              onChange={(e) => setSelectedDoctorId(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 text-gray-900 font-medium"
+            >
+              {doctors.map((d: any, idx: number) => {
+                const id = d.id || d.providerId || d._id || `doc-${idx}`;
+                return (
+                  <option key={id} value={id}>
+                    {d.name} {d.qualification ? `– ${d.qualification}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          ) : (
+            <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50/80 font-medium text-gray-800 flex items-center gap-2">
+              <Stethoscope className="w-4 h-4 text-primary flex-shrink-0" />
+              <span className="truncate">{selectedDoctor.name || "Dr. Shilpa Sutariya, MD (Medicine)"}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-gray-700 block">Date</label>
+          <div className="flex gap-2 overflow-x-auto pb-2 pt-0.5 scrollbar-thin">
+            {next14Days.map((item) => {
+              const hasTiming = isDayOnlineTimingAvailable(item.dayOfWeek, onlineConfig);
+              const count = dateSlotCounts[item.dateStr];
+              const isDisabled = !hasTiming || count === 0;
+              const isSelected = date === item.dateStr;
+
+              return (
+                <button
+                  key={item.dateStr}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => {
+                    if (date !== item.dateStr) {
+                      setDate(item.dateStr);
+                      setSelectedSlot("");
+                    }
+                  }}
+                  className={`flex-shrink-0 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all border text-center ${
+                    isDisabled
+                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
+                      : isSelected
+                      ? "bg-primary text-white border-primary shadow-sm font-semibold ring-2 ring-primary/20"
+                      : "bg-white hover:bg-gray-50 text-gray-800 border-gray-200 cursor-pointer"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-gray-700 block">
+            Select Slot
+            {isLoadingSlots && (
+              <span className="text-xs text-gray-400 font-normal ml-2">Loading slots...</span>
+            )}
+          </label>
+
+          {isLoadingSlots ? (
+            <div className="py-6 text-center text-sm text-gray-500 bg-gray-50 rounded-xl">
+              Checking availability...
+            </div>
+          ) : availableTabs.length === 0 || totalFreeSlots === 0 ? (
+            <div className="py-6 px-4 text-center text-xs sm:text-sm text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+              No online slots on this day. Please choose another date.
+            </div>
+          ) : (
+            <div>
+              {/* Tabs: Morning, Afternoon, Evening */}
+              <div className="flex border-b border-gray-200 gap-4 sm:gap-6 mb-3">
+                {availableTabs.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={`pb-2 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer ${
+                      activeTab === tab
+                        ? "border-primary text-primary"
+                        : "border-transparent text-gray-500 hover:text-gray-800"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {/* 4 columns on desktop and 3 on mobile, with large touch-friendly buttons, no inner scroll box */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                {(activeTab ? groupedSlots[activeTab] : []).map((slotItem: any, idx: number) => {
+                  const isAvail = slotItem.isAvailable;
+                  const isSelected = selectedSlot === slotItem.value || selectedSlot === slotItem.time12;
+
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={!isAvail}
+                      onClick={() => setSelectedSlot(slotItem.value)}
+                      className={`py-3 px-2 sm:py-3.5 sm:px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all border text-center min-h-[46px] flex items-center justify-center ${
+                        !isAvail
+                          ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through opacity-50"
+                          : isSelected
+                          ? "bg-primary text-white border-primary shadow-sm ring-2 ring-primary/20 cursor-pointer"
+                          : "bg-white hover:bg-gray-50 text-gray-800 border-gray-200 cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                      }`}
+                    >
+                      {slotItem.time12}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="online-name" className="text-sm font-semibold text-gray-700 block">
+            Full Name
+          </label>
+          <input
+            id="online-name"
+            required
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="John Doe"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="online-phone" className="text-sm font-semibold text-gray-700 block">
+            Mobile Number (10 digits)
+          </label>
+          <input
+            id="online-phone"
+            required
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="9876543210"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 placeholder:text-gray-400"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label htmlFor="online-age" className="text-sm font-semibold text-gray-700 block">
+              Age
+            </label>
+            <input
+              id="online-age"
+              required
+              type="number"
+              min="1"
+              max="120"
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              placeholder="e.g. 35"
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="online-gender" className="text-sm font-semibold text-gray-700 block">
+              Gender
+            </label>
+            <select
+              id="online-gender"
+              required
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all bg-background/50 min-h-[50px]"
+            >
+              <option value="">Select Gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2.5 pt-1">
+          <input
+            id="online-consent"
+            required
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+          />
+          <label htmlFor="online-consent" className="text-xs sm:text-sm text-gray-700 cursor-pointer">
+            I agree to an online video consultation
+          </label>
+        </div>
+
+        <div className="pt-2 space-y-3">
+          {isLoadingFee ? (
+            <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3.5 text-xs sm:text-sm text-gray-600 flex items-center justify-between animate-pulse">
+              <span>Checking patient record & consultation fee...</span>
+              <span className="font-semibold text-gray-400">...</span>
+            </div>
+          ) : feeData ? (
+            <div className="bg-blue-50/80 border border-blue-100 rounded-xl p-3.5 flex items-center justify-between">
+              <div>
+                <span className="text-sm font-semibold text-gray-900">
+                  Consultation fee: ₹{feeData.fee}
+                </span>
+                {feeData.visitLabel && (
+                  <span className="text-xs text-gray-500 font-normal ml-2">
+                    {feeData.visitLabel}
+                  </span>
+                )}
+              </div>
+              <span className="text-base sm:text-lg font-bold text-gray-900">
+                ₹{feeData.fee}
+              </span>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-xs text-gray-500">
+              {phone && phone.replace(/\D/g, "").length > 0 && phone.replace(/\D/g, "").length < 10
+                ? "Enter complete 10-digit mobile number to calculate consultation fee"
+                : "Enter mobile number to view consultation fee"}
+            </div>
+          )}
+
+          {/* Selected summary above Pay button */}
+          {selectedSlot && (
+            <div className="text-xs sm:text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2.5 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
+              <span className="truncate">
+                {formatSelectedSummary(date, selectedSlot12 || selectedSlot, selectedDoctor.name)}
+              </span>
+            </div>
+          )}
+
+          <motion.button
+            whileHover={isSubmitting || !feeData || isLoadingFee ? {} : { scale: 1.01 }}
+            whileTap={isSubmitting || !feeData || isLoadingFee ? {} : { scale: 0.98 }}
+            type="submit"
+            disabled={isSubmitting || !feeData || isLoadingFee}
+            className={`w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              isSubmitting || !feeData || isLoadingFee
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-primary hover:bg-primary-600 text-white shadow-md shadow-primary/25"
+            }`}
+          >
+            {isSubmitting
+              ? "Processing..."
+              : feeData
+              ? `Pay ₹${feeData.fee} & Confirm`
+              : "Pay"}
+          </motion.button>
+
+          <div className="text-center text-xs text-gray-500 pt-1">
+            By proceeding, you agree to our{" "}
+            <Link to="/terms" className="underline hover:text-gray-900">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link to="/refund-policy" className="underline hover:text-gray-900">
+              Refund Policy
+            </Link>
+            .
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 const BookPage = () => {
+  const [onlineConfig, setOnlineConfig] = useState<any>(null);
+  const [isOnlineEnabled, setIsOnlineEnabled] = useState(false);
+  const [consultationMode, setConsultationMode] = useState<"clinic" | "online">("clinic");
+
+  useEffect(() => {
+    fetchAryaCare("/api/public/online/config")
+      .then((res) => res.json())
+      .then((data) => {
+        if (
+          data &&
+          (data.enabled === true ||
+            data.onlineBookingEnabled === true ||
+            data.onlineConsultationEnabled === true ||
+            data.onlineEnabled === true)
+        ) {
+          setOnlineConfig(data);
+          setIsOnlineEnabled(true);
+        }
+      })
+      .catch(() => {
+        // online video consultation not enabled
+      });
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-lg mx-auto space-y-4">
@@ -1591,10 +2610,122 @@ const BookPage = () => {
 
         {/* Appointment Form Card */}
         <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-gray-100">
+          {isOnlineEnabled && (
+            <div className="flex bg-gray-100 p-1 rounded-xl mb-6">
+              <button
+                type="button"
+                onClick={() => setConsultationMode("clinic")}
+                className={`flex-1 py-2.5 px-3 rounded-lg font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  consultationMode === "clinic"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <Building2 className="w-4 h-4" />
+                In-clinic
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsultationMode("online")}
+                className={`flex-1 py-2.5 px-3 rounded-lg font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  consultationMode === "online"
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <Video className="w-4 h-4" />
+                Online video consultation
+              </button>
+            </div>
+          )}
+
           <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 sm:mb-6">
-            Appointment Details
+            {consultationMode === "online"
+              ? "Online Video Consultation"
+              : "Appointment Details"}
           </h2>
-          <AppointmentForm />
+
+          {consultationMode === "online" ? (
+            <OnlineConsultationForm onlineConfig={onlineConfig} />
+          ) : (
+            <AppointmentForm />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const RefundPolicyPage = () => {
+  useEffect(() => {
+    document.title = "Refund Policy | New Life Hospital";
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+      <div className="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-gray-100 space-y-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Refund & Cancellation Policy</h1>
+        <p className="text-gray-500 text-xs sm:text-sm">Last updated: November 2026</p>
+        <div className="space-y-4 text-gray-700 leading-relaxed text-sm sm:text-base">
+          <p>
+            At New Life Hospital, we strive to provide reliable and accessible healthcare services, including online video consultations. Please review our policy regarding cancellations and refunds.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">1. Cancellation by Patient</h2>
+          <p>
+            If you wish to cancel or reschedule your online consultation, you must do so at least 2 hours before the scheduled appointment time by contacting our support team at +91 8140038191. Eligible cancellations will receive a full refund to the original payment method within 5–7 business days.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">2. Cancellation or Rescheduling by Hospital</h2>
+          <p>
+            In rare cases of medical emergency or unavoidable doctor unavailability, we will offer you an alternative slot of your choice. If you choose not to reschedule, a 100% refund will be initiated immediately.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">3. Missed Appointments (No-Show)</h2>
+          <p>
+            If the patient does not join the video consultation link within 15 minutes of the scheduled time without prior notification, the session will be marked as a no-show and will not be eligible for a refund.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">4. Support & Contact</h2>
+          <p>
+            For any queries, payment verification issues, or refund requests, please contact us at +91 8140038191 or visit New Life Hospital, 4th floor, Royal Arcade, Opp. Sarthana Nature Park, Varachha, Surat.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const TermsPage = () => {
+  useEffect(() => {
+    document.title = "Terms of Service | New Life Hospital";
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+      <div className="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-gray-100 space-y-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Terms of Service</h1>
+        <p className="text-gray-500 text-xs sm:text-sm">Last updated: November 2026</p>
+        <div className="space-y-4 text-gray-700 leading-relaxed text-sm sm:text-base">
+          <p>
+            Welcome to New Life Hospital. By scheduling an appointment or an online video consultation, you agree to the following terms and conditions.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">1. Scope of Online Video Consultations</h2>
+          <p>
+            Online video consultations are intended for non-emergency medical evaluations, follow-ups, lifestyle medicine, and diabetes care. A teleconsultation does not substitute a comprehensive physical examination when critical medical evaluation is needed.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">2. Emergency Medical Conditions</h2>
+          <p>
+            In case of life-threatening emergencies (e.g., chest pain, acute respiratory distress, severe trauma, stroke symptoms), please visit our hospital emergency department immediately or call local emergency services. Do not book an online video consultation for urgent emergencies.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">3. Patient Responsibility & Accuracy</h2>
+          <p>
+            You agree to provide true, current, and complete medical and contact information (including accurate age, current prescriptions, and symptoms) to ensure appropriate clinical care.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">4. Privacy & Communication</h2>
+          <p>
+            Appointment confirmations, video meeting links, and digital receipts will be sent to the mobile number provided via WhatsApp and SMS.
+          </p>
+          <h2 className="text-base sm:text-lg font-bold text-gray-900 pt-2">5. Governing Law</h2>
+          <p>
+            These terms shall be governed by and construed in accordance with the laws of India and the jurisdiction of courts in Surat, Gujarat.
+          </p>
         </div>
       </div>
     </div>
@@ -2736,6 +3867,22 @@ function AppContent() {
             element={
               <div className="pt-16 md:pt-20">
                 <TreatmentPhilosophy />
+              </div>
+            }
+          />
+          <Route
+            path="/refund-policy"
+            element={
+              <div className="pt-16 md:pt-20">
+                <RefundPolicyPage />
+              </div>
+            }
+          />
+          <Route
+            path="/terms"
+            element={
+              <div className="pt-16 md:pt-20">
+                <TermsPage />
               </div>
             }
           />
